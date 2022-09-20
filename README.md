@@ -1,5 +1,5 @@
 # omop-learn
-
+## NOTE : This is a work in progress
 ## What is omop-learn?
 
 This library was developed in order to facilitate rapid prototyping in Python of predictive machine-learning models using longitudinal medical data from an OMOP CDM-standard database. omop-learn supports the easy definition of predictive clinical tasks, featurizations of OMOP data, and cohorts of relevance. We further provide methods using sparse tensor implementations to rapidly manipulate the collected features in the rawest form possible, allowing for dynamic transformations of the data.
