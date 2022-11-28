@@ -22,8 +22,9 @@ with
         from {cdm_schema}.person p
         where extract(
             year from date '{training_end_date}'
-        ) - p.year_of_birth > 70
+        ) - p.year_of_birth > {age}
     ),
+    
     death_training_elig_counts as (
         select
             o.person_id,
@@ -42,6 +43,7 @@ with
         inner join eligible_people p
         on o.person_id = p.person_id
     ),
+
     death_trainingwindow_elig_perc as (
         select
             person_id
@@ -52,6 +54,7 @@ with
         having
             sum(num_days) >= ((0.95 * (date '{training_end_date}' - date '{training_start_date}'))::text || ' days')::interval
     ),
+
     death_testperiod_elig_counts as (
         select
             p.person_id,
@@ -76,6 +79,8 @@ with
         on 
             tr.person_id = p.person_id
     ), 
+
+
     death_testwindow_elig_perc as (
         select
             dtec.person_id

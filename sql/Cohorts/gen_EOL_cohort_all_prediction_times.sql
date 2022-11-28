@@ -50,7 +50,7 @@ with
         from outcome1_people
         where extract(
             year from end_date
-        ) - year_of_birth > 70
+        ) - year_of_birth > {age}
     ),
     
     -- ...then check eligibility of samples with outcome = 1...

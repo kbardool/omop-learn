@@ -33,7 +33,7 @@ def train_embedding(featureSet, feature_matrix_3d_transpose, window_days, person
     f.close()
 
     sentences = LineSentence(data_filename)
-    model = Word2Vec(min_count=0, size=embedding_dim, workers=10)
+    model = Word2Vec(min_count=0, vector_size=embedding_dim, workers=10)
     model.build_vocab(sentences)
     n_epochs = 20
     model.train(sentences, total_examples=model.corpus_count, epochs=n_epochs)

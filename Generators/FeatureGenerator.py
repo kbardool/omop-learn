@@ -1,3 +1,4 @@
+import os
 import sys
 sys.path.append('..')
 
@@ -28,7 +29,7 @@ class Feature():
 
 
     def __str__(self):
-        return "Temporal feature extracted from {}".format(
+        return "{}Temporal feature extracted from {}".format(' Non-' if self.is_temporal else ' ',
             self._feature_sql_file
         )
     
@@ -114,8 +115,12 @@ class FeatureSet():
         )
 
     def build(self, cohort, cache_file='/tmp/store.csv', nontemporal_cache_file='/tmp/store_ntmp.csv', from_cached=False):
+        """
+        build joined sql for temporal features and write to output
+        execute query as a COPY to CSV file
+        """
         joined_sql = "{} order by {} asc".format(
-            " union all ".join(
+            "union all \n\n".join(
                     f._sql_raw.format(
                         cdm_schema=config.OMOP_CDM_SCHEMA,
                         cohort_table='{}.{}'.format(
@@ -128,6 +133,11 @@ class FeatureSet():
             ",".join([self.unique_id_col,      ## Order by unique_id
                       self.time_col, self.feature_col])    
         )
+
+
+        with open('tmp/sql_temporal.txt','w') as f:
+            f.write(joined_sql)
+        
         if not from_cached:
             copy_sql = """
                 copy 
@@ -140,19 +150,22 @@ class FeatureSet():
                 query=joined_sql,
                 head="HEADER"
             )
+            with open('tmp/copy_temporal.txt','w') as f:
+                f.write(copy_sql)   
+
             t = time.time()
             conn = self._db.engine.raw_connection()
             cur = conn.cursor()
+            print(os.getcwd())
             store = open(cache_file,'wb')
             cur.copy_expert(copy_sql, store)
             store.seek(0)
-            print('Data loaded to buffer in {0:.2f} seconds'.format(
-                time.time()-t
-            ))
+            print('Temporal data loaded to buffer in {0:.2f} seconds'.format(time.time()-t))
             
         t = time.time()
         store = open(cache_file,'rb')
-    
+
+        ## Create lists of unique times, concepts, and 
         self.concepts = set()
         self.times = set()
         self.seen_ids=set()
@@ -162,13 +175,14 @@ class FeatureSet():
             self.concepts = self.concepts.union(set(chunk[self.feature_col].unique()))
             self.times = self.times.union(set(chunk[self.time_col].unique()))
             self.seen_ids = self.seen_ids.union(set(chunk[self.unique_id_col].unique()))
-        self.times = sorted(list(self.times))
+        self.times    = sorted(list(self.times))
         self.concepts = sorted(list(self.concepts))
         self.seen_ids = sorted(list(self.seen_ids))
-        print('Got Unique Concepts and Timestamps in {0:.2f} seconds'.format(
-            time.time()-t
-        ))
+        print('Got {} Unique Concepts, {}  Timestamps , and {} examples in {:.2f} seconds'.format( len(self.concepts), len(self.times), 
+            len(self.seen_ids) , time.time()-t))
         
+        ## Create index mappings 
+
         t = time.time()
         store.seek(0)
         self.ids = cohort._cohort[self.unique_id_col].unique()
@@ -182,6 +196,7 @@ class FeatureSet():
         print('Created Index Mappings in {0:.2f} seconds'.format(
             time.time()-t
         ))
+
 
         t = time.time()
         last = None
@@ -222,12 +237,11 @@ class FeatureSet():
             spm_stored = spm_local[-1]
             last = chunk.iloc[-1][self.unique_id_col]
         spm_arr.append(spm_stored)
-        print(len(spm_arr))
+ 
         self._spm_arr = sparse.stack([sparse.COO.from_scipy_sparse(m) for m in spm_arr], 2)
-        print('Generated Sparse Representation of Data in {0:.2f} seconds'.format(
-            time.time() - t
-        ))
 
+        print('Generated Sparse Representation of Data in {0:.2f} seconds'.format(time.time() - t ))
+        store.close()
         # Build nontemporal feature matrix
 
         if len(self._nontemporal_features) > 0:
@@ -245,6 +259,8 @@ class FeatureSet():
                 ",".join([self.unique_id_col,      ## Order by unique_id
                           self.feature_col])    
             )
+            with open('tmp/sql_non_temporal.txt','w') as f:
+                f.write(joined_sql)
             if not from_cached:
                 copy_sql = """
                     copy 
@@ -263,7 +279,7 @@ class FeatureSet():
                 store = open(nontemporal_cache_file,'wb')
                 cur.copy_expert(copy_sql, store)
                 store.seek(0)
-                print('Nontemporal data loaded to buffer in {0:.2f} seconds'.format(
+                print('\nNontemporal data loaded to buffer in {0:.2f} seconds'.format(
                     time.time()-t
                 ))
                 
@@ -277,9 +293,8 @@ class FeatureSet():
                 self.ntmp_seen_ids = self.ntmp_seen_ids.union(set(chunk[self.unique_id_col].unique()))
                 self.ntmp_concepts = self.ntmp_concepts.union(set(chunk[self.feature_col].unique()))
             self.ntmp_concepts = sorted(list(self.ntmp_concepts))
-            print('Got Unique Nontemporal Concepts in {0:.2f} seconds'.format(
-                time.time()-t
-            ))
+            print('Got {} Unique Nontemporal Concepts and {} ntmp examples  in {:.2f} seconds'.format(len(self.ntmp_concepts),
+                len(self.ntmp_seen_ids) , time.time()-t ))
             
             t = time.time()
             store.seek(0)
@@ -315,6 +330,7 @@ class FeatureSet():
             print('Generated Sparse Representation of Nontemporal Data in {0:.2f} seconds'.format(
                 time.time() - t
             ))
+            store.close()
 
     def get_sparr_rep(self):
         '''
@@ -338,6 +354,7 @@ def postprocess_feature_matrix(cohort, featureSet, training_end_date_col='traini
     '''
 
     feature_matrix_3d = featureSet.get_sparr_rep()
+
     outcomes = cohort._cohort.set_index('example_id').loc[
         sorted(featureSet.seen_ids)
     ]['y']

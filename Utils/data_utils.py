@@ -23,11 +23,14 @@ def window_data(
             if pd.to_datetime(t) < window_end and pd.to_datetime(t) > window_start
         }
         return list(windowed_rev_time_map.values())
+    
     windowed_time_ixs = dict()
     for interval in window_lengths:
         windowed_time_ixs[interval] = gen_window_ixs(interval)
+    
     feature_matrix_slices = []
     feature_names = []
+    
     for interval in sorted(windowed_time_ixs):
         feature_matrix_slices.append(
             feature_matrix[:, windowed_time_ixs[interval], :]
@@ -36,12 +39,14 @@ def window_data(
             '{} - {} days'.format(n, interval)
             for i,n in enumerate(all_feature_names)
         ]
+    
     feature_matrix_counts = scipy.sparse.vstack(
         [
             m.sum(axis=1).T.tocsr()
             for m in feature_matrix_slices
         ]
     )
+    print(' Windowed time indexes : ', windowed_time_ixs.keys())
     return feature_matrix_counts, feature_names
 
 

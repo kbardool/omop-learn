@@ -13,23 +13,26 @@ import config
 class Database(object):  # noqa
 
     def __init__(self, config_path, schema_name, connect_args, cdm_schema_name, echo=False): 
-        print(f'config path : {config_path}')
-        print(f'connect args: {connect_args}')
-        # self.engine = sqlalchemy.create_engine(config_path, encoding='UTF-8', echo=echo, connect_args=connect_args)
         
-        self.engine = sqlalchemy.create_engine(config_path, encoding='UTF-8', echo=echo) 
-        print(' engine connect')
-        conn = self.engine.connect()
-        print(' engine connected')
-        
-        self.meta = sqlalchemy.MetaData(bind=self.engine)
-        self.meta.reflect(self.engine, schema=schema_name)
-        
-        self.cdmMeta = sqlalchemy.MetaData(bind=self.engine, schema=cdm_schema_name)
-        self.cdmMeta.reflect()
-        
-        self.selfMeta = sqlalchemy.MetaData(bind=self.engine, schema=schema_name)
-        self.selfMeta.reflect()
+        self.engine = sqlalchemy.create_engine(
+            config_path,
+            echo=echo,
+            connect_args=connect_args
+        )
+        self.meta = sqlalchemy.MetaData(
+            bind=self.engine,
+            reflect=True
+        )
+        self.cdmMeta = sqlalchemy.MetaData(
+            bind=self.engine,
+            reflect=True,
+            schema=cdm_schema_name
+        )
+        self.selfMeta = sqlalchemy.MetaData(
+            bind=self.engine,
+            reflect=True,
+            schema=schema_name
+        )
         
     @contextmanager
     def _session_scope(self):

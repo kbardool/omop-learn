@@ -17,13 +17,16 @@ with
         from
             {cdm_schema}.death p
     ),
+
     eligible_people as (
         select p.person_id
         from {cdm_schema}.person p
         where extract(
             year from date '{training_end_date}'
-        ) - p.year_of_birth > 70
+        ) - p.year_of_birth > {age}
     ),
+
+
     death_training_elig_counts as (
         select
             o.person_id,
@@ -42,6 +45,8 @@ with
         inner join eligible_people p
         on o.person_id = p.person_id
     ),
+
+    /* Enrolled in 95% of months of training */
     death_trainingwindow_elig_perc as (
         select
             person_id
@@ -52,6 +57,7 @@ with
         having
             sum(num_days) >= 0.95 * (date '{training_end_date}' - date '{training_start_date}')
     ),
+
     death_testperiod_elig_counts as (
         select
             p.person_id,
@@ -76,6 +82,8 @@ with
         on
             tr.person_id = p.person_id
     ),
+
+    /* Enrolled in 95% of days during outcome window, or expired during outcome window */ 
     death_testwindow_elig_perc as (
         select
             dtec.person_id
@@ -88,9 +96,11 @@ with
         group by
             dtec.person_id, d.death_date
         having
+            /* expired during outcome window */
             (d.death_date >= date '{training_end_date}' + interval '{gap}' and
              d.death_date <= date '{training_end_date}' + interval '{gap}' + interval '{outcome_window}')
-        or
+            or
+            /* enrolled in 95% of days during outcome window */ 
             sum(num_days) >= 0.95 * extract(
                 epoch from (
                     interval '{gap}'
@@ -103,8 +113,8 @@ with
         row_number() over (order by te.person_id) - 1 as example_id,
         te.person_id,
         date '{training_start_date}' as start_date,
-        date '{training_end_date}' as end_date,
-        d.death_date as outcome_date,
+        date '{training_end_date}'   as end_date,
+        d.death_date                 as outcome_date,
 
         coalesce(
             (d.death_date between

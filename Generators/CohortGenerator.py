@@ -68,7 +68,10 @@ class Cohort(object):
                     )
                 else:
                     self.cohort_generation_sql = cohort_generation_sql_raw
-                    
+                
+                with open('./tmp/sql_cohort.txt', 'w') as f:
+                    f.write(self.cohort_generation_sql)
+
                 db.build_table('{}.{}'.format(
                     self._schema_name,
                     self._cohort_table_name

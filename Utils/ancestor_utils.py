@@ -1,33 +1,43 @@
 import psycopg2, pandas as pd, numpy as np, pickle, scipy, time, sys
-
+from sqlalchemy import create_engine
 '''
 The main function to call is get_ancestor_matrix
 '''
 
-def get_ancestors(feature_codes, features_are_drugs, hierarchical):
+def get_ancestors(feature_codes, features_are_drugs, hierarchical, connection_url):
     '''
-    feature_codes is a list of strings.
-    features_are_drugs is a boolean. True if features are drugs. False otherwise.
-    hierarchical is a boolean. True if recursively get features
+    feature_codes      : is a list of featurecode strings.
+    features_are_drugs : is a boolean. True if features are drugs. False otherwise.
+    hierarchical       : is a boolean. True if recursively get features
+    connection_url     : is a string containing the database connection URL
+    
     returns 1) a dictionary that maps each string in feature_codes to its immediate ancestors' codes if present
-        and each ancestor to its immediate ancestor until top of hierarchy is reached if hierarchical
-        2) inverse mapping of the dictionary above: ancestor to all the features that map to it
+               and each ancestor to its immediate ancestor until top of hierarchy is reached if hierarchical
+            2) inverse mapping of the dictionary above: ancestor to all the features that map to it
     '''
-    conn = psycopg2.connect("dbname=omop_v4 user=cji password=* host=/var/run/postgresql")
-    sql_command_before_feat_code = 'select distinct concept_id_2 from cdm.concept_relationship ' \
+    # conn = psycopg2.connect("dbname=omop_v4 user=cji password=* host=/var/run/postgresql")
+    engine = create_engine(connection_url, echo=False)
+    conn = engine.connect()    
+
+    sql_command_before_feat_code = 'select distinct concept_id_2 from omopcdm.concept_relationship ' \
         + 'where concept_id_1 = '
+
     if features_are_drugs:
         sql_command_after_feat_code = ' and relationship_id = \'RxNorm is a\';'
     else:
         sql_command_after_feat_code = ' and relationship_id = \'Is a\';'
+
     feature_anc_dict = dict()
     anc_to_feature_dict = dict()
     feats_to_check = set(feature_codes)
+
     while len(feats_to_check) > 0:
         feat_code = feats_to_check.pop()
         sql_command = sql_command_before_feat_code + str(feat_code) + sql_command_after_feat_code
+        
         ancestor_codes = pd.read_sql(sql_command, conn)
         ancestors = ancestor_codes['concept_id_2'].values.tolist()
+        
         if len(ancestors) > 0:
             feature_anc_dict[feat_code] = ancestors
             for anc in ancestors:
@@ -39,13 +49,15 @@ def get_ancestors(feature_codes, features_are_drugs, hierarchical):
                 for anc in ancestors:
                     if anc not in feature_anc_dict:
                         feats_to_check.add(anc)
+    
     return feature_anc_dict, anc_to_feature_dict
     
 def get_ancestor_feature_matrix(feature_matrix, feature_codes, anc_to_feature_dict):
     '''
-    feature_matrix contains the counts of each feature (number of patients by length of feature_names)
-    feature_codes is a list of strings that are the columns in feature_matrix
-    anc_to_feature_dict is a dictionary mapping each ancestor to its immediate children
+    feature_matrix     :  contains the counts of each feature (number of patients by length of feature_names)
+    feature_codes      :  is a list of strings that are the columns in feature_matrix
+    anc_to_feature_dict:  is a dictionary mapping each ancestor to its immediate children
+
     returns 1) a matrix that is number of patients by length of ancestor_names
                filled with sum of entries in feature_matrix that map to the ancestor in that column
             2) a list of ancestor_codes corresponding to the columns in the matrix above
@@ -70,8 +82,8 @@ def get_ancestor_feature_matrix(feature_matrix, feature_codes, anc_to_feature_di
 
 def convert_code_dict_to_names(code_dict, code_to_name_mapping):
     '''
-    code_dict is a dictionary that maps each code to a list of codes
-    code_to_name_mapping is a dictionary maps each code to a string name
+    code_dict :            is a dictionary that maps each code to a list of codes
+    code_to_name_mapping:  is a dictionary maps each code to a string name
     '''
     name_dict = dict()
     for key_code in code_dict:
@@ -82,13 +94,14 @@ def convert_code_dict_to_names(code_dict, code_to_name_mapping):
         name_dict[key_name] = value_names
     return name_dict
 
-def get_names(anc_codes, feat_to_anc_code_dict, anc_to_feat_code_dict, feat_codes, feat_names):
+def get_names(anc_codes, feat_to_anc_code_dict, anc_to_feat_code_dict, feat_codes, feat_names, connection_url):
     '''
-    anc_codes is a list of ancestor concept IDs that corresponds to the keys in anc_to_feat_code_dict
-    feat_to_anc_code_dict is a dictionary mapping each feature code to a list of ancestor codes
-    anc_to_feat_code_dict is a dictionary mapping each ancestor code to a list of feature codes, complement of above
-    feat_codes is a list of feature concept IDs 
-    feat_names is a list of feature names that corresponds to feat_codes
+    anc_codes             : is a list of ancestor concept IDs that corresponds to the keys in anc_to_feat_code_dict
+    feat_to_anc_code_dict : is a dictionary mapping each feature code to a list of ancestor codes
+    anc_to_feat_code_dict : is a dictionary mapping each ancestor code to a list of feature codes, complement of above
+    feat_codes            : is a list of feature concept IDs 
+    feat_names            : is a list of feature names that corresponds to feat_codes
+    
     returns 1) anc_codes translated into names
             2) feat_to_anc_code_dict translated into names
             3) anc_to_feat_code_dict translated into names
@@ -97,19 +110,23 @@ def get_names(anc_codes, feat_to_anc_code_dict, anc_to_feat_code_dict, feat_code
     feat_anc_code_to_name_mapping = dict()
     for i in range(len(feat_codes)):
         feat_anc_code_to_name_mapping[feat_codes[i]] = feat_names[i]
-    conn = psycopg2.connect("dbname=omop_v4 user=cji password=* host=/var/run/postgresql")
-    sql_command_before_code = 'select concept_name from cdm.concept where concept_id='
+    # conn = psycopg2.connect("dbname=omop_v4 user=cji password=* host=/var/run/postgresql")
+    engine = create_engine(connection_url, echo=False)
+    conn = engine.connect()        
+    sql_command_before_code = 'select concept_name from omopcdm.concept where concept_id='
     anc_names = []
+    
     for code in anc_codes:
         sql_command = sql_command_before_code + str(code) + ';'
         name = pd.read_sql(sql_command, conn).values[0][0]
         anc_names.append(name)
         feat_anc_code_to_name_mapping[code] = name
+    
     feat_to_anc_name_dict = convert_code_dict_to_names(feat_to_anc_code_dict, feat_anc_code_to_name_mapping)
     anc_to_feat_name_dict = convert_code_dict_to_names(anc_to_feat_code_dict, feat_anc_code_to_name_mapping)
     return anc_names, feat_to_anc_name_dict, anc_to_feat_name_dict
 
-def get_ancestor_matrix_and_mapping(feature_matrix, feature_codes, feature_names, features_are_drugs):
+def get_ancestor_matrix_and_mapping(feature_matrix, feature_codes, feature_names, features_are_drugs, connection_args):
     '''
     feature_matrix contains the counts of each feature (number of patients by length of feature_names)
     feature_codes is a list of concept IDs (strings) that are the columns in feature_matrix
@@ -128,16 +145,20 @@ def get_ancestor_matrix_and_mapping(feature_matrix, feature_codes, feature_names
     '''
     assert feature_matrix.shape[1] == len(feature_codes)
     assert len(feature_codes) == len(feature_names)
+    
     start_time = time.time()
-    feat_to_anc_code_dict, anc_to_feat_code_dict = get_ancestors(feature_codes, features_are_drugs, True)
-    print('get_ancestors took ' + str(time.time() - start_time) + ' seconds')
+    feat_to_anc_code_dict, anc_to_feat_code_dict = get_ancestors(feature_codes, features_are_drugs, True,  connection_args)
+    print(f'  get_ancestors took {(time.time() - start_time):.4f}  seconds')
+    
     start_time = time.time()
     anc_matrix, anc_codes = get_ancestor_feature_matrix(feature_matrix, feature_codes, anc_to_feat_code_dict)
-    print('get_ancestor_feature_matrix took ' + str(time.time() - start_time)  + ' seconds')
+    print(f'  get_ancestor_feature_matrix took {(time.time() - start_time):.4f}  seconds')
+    
+    
     start_time = time.time()
     anc_names, feat_to_anc_name_dict, anc_to_feat_name_dict = get_names(anc_codes, feat_to_anc_code_dict, \
-                                                                        anc_to_feat_code_dict, feature_codes, feature_names)
-    print('get_names took ' + str(time.time() - start_time) + ' seconds')
+                                                                  anc_to_feat_code_dict, feature_codes, feature_names, connection_args)
+    print(f'  get_names took {(time.time() - start_time):.4f}  seconds')
     assert set(anc_names) == set(anc_to_feat_name_dict.keys())
     return anc_matrix, anc_codes, anc_names, feat_to_anc_code_dict, anc_to_feat_code_dict, feat_to_anc_name_dict, \
            anc_to_feat_name_dict
@@ -217,23 +238,27 @@ def print_samples(feature_matrix, feature_names, anc_matrix, anc_names, num_samp
     with open(output_file, 'w') as f:
         f.write(output_str)
     
-def get_ancestor_matrix(n_days, feature_matrix, feature_names, fileheader):
+def get_ancestor_matrix(n_days, feature_matrix, feature_names, fileheader, connection_args):
     '''
-    n_days is an integer that matches one of the feature windows in the pickle file
-    feature_matrix: sparse matrix containing feature counts: # features x # patients
-    feature_names: list of strings corresponding to rows in feature_matrix
-    fileheader: start of filenames where outputs are written to
+    n_days        :  is an integer that matches one of the feature windows in the pickle file
+    feature_matrix:  sparse matrix containing feature counts: # features x # patients
+    feature_names :  list of strings corresponding to rows in feature_matrix
+    fileheader    :  start of filenames where outputs are written to
+    
     Run the method above for drugs, conditions, and procedures in the past n_days in our first-line diabetes dataset
-    Prints the ancestors hierarchically for each feature
-    Merges overlapping ancestors among conditions and procedures
-    Prints the features and ancestors for some random samples
-    Stores a new pickle file with the ancestor matrix, codes, names, mapping from feature to ancestor codes, 
-        mapping from ancestor to feature codes, mapping from feature to ancestor names, 
-        mapping from ancestor to feature names, and overlapping ancestors among conditions and procedures
+    - Prints the ancestors hierarchically for each feature
+    - Merges overlapping ancestors among conditions and procedures
+    - Prints the features and ancestors for some random samples
+    - Stores a new pickle file with the ancestor matrix, codes, names, mapping from feature to ancestor codes, 
+        mapping from ancestor to feature codes, 
+        mapping from feature to ancestor names, 
+        mapping from ancestor to feature names, 
+        and overlapping ancestors among conditions and procedures
     '''
     feature_matrix = feature_matrix.T.todense()
     if fileheader[-1] != '_':
         fileheader += '_'
+
     # get the features that correspond to the window n_days
     drug_feature_codes = []
     drug_feature_names = []
@@ -244,6 +269,7 @@ def get_ancestor_matrix(n_days, feature_matrix, feature_names, fileheader):
     procedure_feature_codes = []
     procedure_feature_names = []
     procedure_feature_idxs = []
+    
     for idx in range(len(feature_names)):
         feat = feature_names[idx]
         feat_split = feat.split(' - ')
@@ -260,34 +286,48 @@ def get_ancestor_matrix(n_days, feature_matrix, feature_names, fileheader):
                 procedure_feature_codes.append(feat_split[0])
                 procedure_feature_names.append(feat_split[2])
                 procedure_feature_idxs.append(idx)
+    
     # get the ancestors for drugs, conditions, and procedures separately
-    print('processing drug features')
+    print(f' {n_days}: processing drug features')
     drug_anc_matrix, drug_anc_codes, drug_anc_names, drug_feat_to_anc_code_dict, drug_anc_to_feat_code_dict, \
         drug_feat_to_anc_name_dict, drug_anc_to_feat_name_dict \
-        = get_ancestor_matrix_and_mapping(feature_matrix[:,drug_feature_idxs], drug_feature_codes, drug_feature_names, True)
+        = get_ancestor_matrix_and_mapping(feature_matrix[:,drug_feature_idxs], drug_feature_codes, drug_feature_names, True, connection_args)
+    
+    
     print_ancestors_of_frequent_features(feature_matrix[:,drug_feature_idxs], drug_feature_names, drug_feat_to_anc_name_dict, \
                                          fileheader + 'drug_ancestors_' + str(n_days) + 'days.txt')
-    print('processing condition features')
+
+    print(f' {n_days}: processing condition features')
     condition_anc_matrix, condition_anc_codes, condition_anc_names, condition_feat_to_anc_code_dict, \
         condition_anc_to_feat_code_dict, condition_feat_to_anc_name_dict, condition_anc_to_feat_name_dict \
         = get_ancestor_matrix_and_mapping(feature_matrix[:,condition_feature_idxs], condition_feature_codes, \
-                                          condition_feature_names, False)
+                                          condition_feature_names, False, connection_args)
+    
+    
     print_ancestors_of_frequent_features(feature_matrix[:,condition_feature_idxs], condition_feature_names, \
                                          condition_feat_to_anc_name_dict, \
                                          fileheader + 'condition_ancestors_' + str(n_days) + 'days.txt')
-    print('processing procedure features')
+    
+    print(f' {n_days}: processing procedure features')
     procedure_anc_matrix, procedure_anc_codes, procedure_anc_names, procedure_feat_to_anc_code_dict, \
         procedure_anc_to_feat_code_dict, procedure_feat_to_anc_name_dict, procedure_anc_to_feat_name_dict \
         = get_ancestor_matrix_and_mapping(feature_matrix[:,procedure_feature_idxs], procedure_feature_codes, \
-                                          procedure_feature_names, False)
+                                          procedure_feature_names, False, connection_args)
+
+
     print_ancestors_of_frequent_features(feature_matrix[:,procedure_feature_idxs], procedure_feature_names, \
                                          procedure_feat_to_anc_name_dict, \
                                          fileheader + 'procedure_ancestors_' + str(n_days) + 'days.txt')
+    
     assert len(set(drug_anc_names).intersection(set(condition_anc_names))) == 0
     assert len(set(drug_anc_names).intersection(set(procedure_anc_names))) == 0
+    
     # handle ancestors shared between procedures and conditions
     overlapping_names = set(condition_anc_names).intersection(set(procedure_anc_names))
+    print(f'There are {len(overlapping_names)} overlapping ancestors between procedures and conditions')
+
     for overlapping_name in overlapping_names:
+        print(f'  > {overlapping_name}')
         proc_idx = procedure_anc_names.index(overlapping_name)
         cond_idx = condition_anc_names.index(overlapping_name)
         condition_anc_matrix[:,cond_idx] += procedure_anc_matrix[:,proc_idx]
@@ -304,6 +344,7 @@ def get_ancestor_matrix(n_days, feature_matrix, feature_names, fileheader):
         else:
             procedure_anc_matrix = procedure_anc_matrix[:,:proc_idx]
     assert len(set(condition_anc_names).intersection(set(procedure_anc_names))) == 0
+    
     # merge the 3 into a single ancestor matrix/mapping
     anc_matrix = scipy.sparse.csr_matrix(np.hstack((drug_anc_matrix, condition_anc_matrix, procedure_anc_matrix)), dtype=int)
     anc_codes = drug_anc_codes + condition_anc_codes + procedure_anc_codes
@@ -320,9 +361,11 @@ def get_ancestor_matrix(n_days, feature_matrix, feature_names, fileheader):
     anc_to_feat_name_dict = drug_anc_to_feat_name_dict
     anc_to_feat_name_dict.update(condition_anc_to_feat_name_dict)
     anc_to_feat_name_dict.update(procedure_anc_to_feat_name_dict)
+
     with open(fileheader + 'ancestor_' + str(n_days) + 'days.pkl', 'wb') as f:
         pickle.dump((anc_matrix, anc_codes, anc_names, feat_to_anc_code_dict, anc_to_feat_code_dict, feat_to_anc_name_dict, \
                      anc_to_feat_name_dict, overlapping_names), f)
+    
     print_samples(feature_matrix[:,drug_feature_idxs + condition_feature_idxs + procedure_feature_idxs], \
                   drug_feature_names + condition_feature_names + procedure_feature_names, anc_matrix, anc_names, 10, \
                   fileheader + 'ancestor_' + str(n_days) + 'days_10samples.txt')

@@ -4,3 +4,6 @@ node_modules
 __pycache__
 .*
 !.gitignore
+tmp/
+**/*.pyc
+*.code-workspace

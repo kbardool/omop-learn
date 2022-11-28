@@ -1,12 +1,10 @@
 
 # Database Setup
-PG_HOST = '20.224.120.22'
-PG_PORT = '5444'
+PG_HOST = '172.19.224.1'
+PG_PORT = '5432'
 DB_NAME = 'OHDSI'
-PG_USERNAME = "athena_admin"
-PG_PASSWORD = "3Ej14dDacXaBFliu"
-# PG_USERNAME = 'athena'
-# PG_PASSWORD = '7YPAGTLKzlY66l2G'
+PG_USERNAME = "kevin"
+PG_PASSWORD = "Ahwaz22"
 
 # Schemas
 OMOP_CDM_SCHEMA = 'omopcdm' # schema holding standard OMOP tables
