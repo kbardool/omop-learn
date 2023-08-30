@@ -165,7 +165,8 @@ class FeatureSet():
         t = time.time()
         store = open(cache_file,'rb')
 
-        ## Create lists of unique times, concepts, and 
+        ## Create lists of unique times, concepts, and ids 
+        
         self.concepts = set()
         self.times = set()
         self.seen_ids=set()
@@ -197,12 +198,14 @@ class FeatureSet():
             time.time()-t
         ))
 
-
+        ## Create a sparse representation of the data
+        
         t = time.time()
         last = None
         spm_stored = None
         spm_arr = []
         self.recorded_ids = set()
+        
         for chunk_num, chunk in enumerate(pd.read_csv(store, chunksize=chunksize)):
             chunk.dropna(subset=[self.feature_col], inplace=True)
             first = chunk.iloc[0][self.unique_id_col]
@@ -354,26 +357,40 @@ def postprocess_feature_matrix(cohort, featureSet, training_end_date_col='traini
     '''
 
     feature_matrix_3d = featureSet.get_sparr_rep()
-
+    print(f" feature_matrix_3d.shape {feature_matrix_3d.shape}")
+    
     outcomes = cohort._cohort.set_index('example_id').loc[
         sorted(featureSet.seen_ids)
     ]['y']
+    print(f" outcomes shape: {outcomes.shape}")
+    
     good_feature_ix = [
         i for i in sorted(featureSet.concept_map)
         if '- No matching concept' not in featureSet.concept_map[i]
     ]
+    print(f" len of good_featue_ix: {len(good_feature_ix)}")
+    
     good_feature_names = [
         featureSet.concept_map[i] for i in sorted(featureSet.concept_map)
         if '- No matching concept' not in featureSet.concept_map[i]
     ]
+    print(f" len of good_featue_names: {len(good_feature_names)}")
+    
     good_time_ixs = [
         i for i in sorted(featureSet.time_map)
         if featureSet.time_map[i] <= cohort._cohort_generation_kwargs[training_end_date_col]
     ]
+    print(f" len of good_time_ixs: {len(good_time_ixs)}")
+    
     feature_matrix_3d = feature_matrix_3d[good_feature_ix, :, :]
+    print(f" feature_matrix_3d.shape {feature_matrix_3d.shape}")
     feature_matrix_3d = feature_matrix_3d[:, good_time_ixs, :]
+    print(f" feature_matrix_3d.shape {feature_matrix_3d.shape}")
     feature_matrix_3d_transpose = feature_matrix_3d.transpose((2,1,0))
+    print(f" feature_matrix_3d.shape {feature_matrix_3d.shape}")
+    
     total_events_per_person = feature_matrix_3d_transpose.sum(axis=-1).sum(axis=-1)
+    print(f" total_events_per_person {total_events_per_person.shape} \n {total_events_per_person.todense()}")
 
     # Retain only people for whom we have some *temporal* feature
     people_with_data_ix = np.where(total_events_per_person.todense() > 0)[0].tolist()
