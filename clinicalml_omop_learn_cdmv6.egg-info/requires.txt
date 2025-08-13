@@ -1,0 +1,12 @@
+numpy
+sqlalchemy
+pandas
+torch
+sklearn
+matplotlib
+ipywidgets
+ipython
+gensim
+scipy
+sparse
+psycopg2-binary
