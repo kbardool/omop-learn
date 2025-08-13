@@ -5,32 +5,55 @@ import pandas as pd
 import sqlalchemy
 import io
 import time
+
 from sqlalchemy.orm import sessionmaker
 from contextlib import contextmanager
 
 import config
-        
+
+import logging
+FORMAT = '%(asctime)s - %(levelname)s: - %(message)s'
+logging.basicConfig(level="INFO", format= FORMAT)
+logging.getLogger("imported_module").setLevel(logging.CRITICAL)        
+
 class Database(object):  # noqa
 
     def __init__(self, config_path, schema_name, connect_args, cdm_schema_name, echo=False): 
         print(f'config path : {config_path}')
         print(f'connect args: {connect_args}')
         # self.engine = sqlalchemy.create_engine(config_path, encoding='UTF-8', echo=echo, connect_args=connect_args)
-        
+
+        logging.info(f" 1/7- create engine ")
         self.engine = sqlalchemy.create_engine(config_path, encoding='UTF-8', echo=echo) 
-        print(' engine connect')
+        logging.info(f" 1/7- engine connect")
         conn = self.engine.connect()
-        print(' engine connected')
+        logging.info(f" 1/7- engine connected")
         
+        logging.info(f" 2/7- Create self.meta - sqlalchemy.MetaData(bind=self.engine) start")
         self.meta = sqlalchemy.MetaData(bind=self.engine)
+        logging.info(f" 2/7- Create self.meta - sqlalchemy.MetaData(bind=self.engine) complete")
+        
+        logging.info(f" 3/7- elf.meta.reflect(self.engine, schema={schema_name}) start")
         self.meta.reflect(self.engine, schema=schema_name)
+        logging.info(f" 3/7- self.meta.reflect(self.engine, schema={schema_name}) complete")
         
+        logging.info(f" 4/7- Create self.cdmMeta - sqlalchemy.MetaData(bind=self.engine, schema={cdm_schema_name}) start")
         self.cdmMeta = sqlalchemy.MetaData(bind=self.engine, schema=cdm_schema_name)
-        self.cdmMeta.reflect()
+        logging.info(f" 4/7- Create self.cdmMeta - sqlalchemy.MetaData(bind=self.engine, schema={cdm_schema_name}) complete")
         
+        # logging.info(f" 5/7- self.cdmMeta.reflect() start")
+        # self.cdmMeta.reflect()
+        # logging.info(f" 5/7- self.cdmMeta.reflect() complete")
+        
+        logging.info(f" 6/7- Create self.selfMeta - sqlalchemy.MetaData(bind=self.engine, schema={schema_name}) start")
         self.selfMeta = sqlalchemy.MetaData(bind=self.engine, schema=schema_name)
-        self.selfMeta.reflect()
+        logging.info(f" 6/7- Create self.selfMeta - sqlalchemy.MetaData(bind=self.engine, schema={schema_name}) complete")
         
+        logging.info(f" 7/7- self.selfMeta.reflect() start")
+        self.selfMeta.reflect()
+        logging.info(f" 7/7- self.selfMeta.reflect() complete")
+    
+    
     @contextmanager
     def _session_scope(self):
 
@@ -58,11 +81,14 @@ class Database(object):  # noqa
             None
         '''
         with self._session_scope() as session:
-
+            logging.info(f" 1/3- drop table if exists {table_name}")
             drop_sql = "drop table if exists {}".format(table_name)
             session.execute(sqlalchemy.text(drop_sql))
+            logging.info(f" 1/3- drop table if exists {table_name} finished")
             
+            logging.info(f" 2/3- execute sql")
             session.execute(sqlalchemy.text(sql))
+            logging.info(f" 2/3- execute sql finished")
             session.commit()
     
     def build_table_from_sql_file(

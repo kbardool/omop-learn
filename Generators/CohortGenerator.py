@@ -4,9 +4,12 @@ sys.path.append('..')
 from Utils.dbutils import Database
 from jinja2 import Template
 import pandas as pd
-import datetime as dt
+from   datetime import datetime
 import time
 import config
+import logging
+logging.basicConfig(level="INFO")
+logging.getLogger("imported_module").setLevel(logging.CRITICAL)        
 
 class Cohort(object): 
     def __init__(
@@ -19,7 +22,7 @@ class Cohort(object):
         verbose=True,
         outcome_col_name='y'
     ):  
-
+        logging.info(' Cohort init begin')
         self._cohort = []
         self._built = False
         self._first = first
@@ -37,6 +40,7 @@ class Cohort(object):
         self._dtype['person_source_value'] = str
         self._dtype['start_date'] = str
         self._dtype['end_date'] = str
+        logging.info(' Cohort init end')
 
 
     def get_num_examples(self):  # noqa
@@ -47,6 +51,8 @@ class Cohort(object):
 
     def build(self, db, replace=False):  # noqa
 
+        logging.info(f' Cohort build start')
+        
         if replace or self._cohort_table_name not in db.get_all_tables(
                 schema=self._schema_name
             ).values:
@@ -59,7 +65,8 @@ class Cohort(object):
                             self._schema_name
                         )
                     )
-                
+                    
+                logging.info(f' Read cohort SQL template')        
                 with open(self._cohort_generation_script, 'r') as f:
                     cohort_generation_sql_raw = f.read()
                 if self._cohort_generation_kwargs is not None:
@@ -68,9 +75,13 @@ class Cohort(object):
                     )
                 else:
                     self.cohort_generation_sql = cohort_generation_sql_raw
-                
-                with open('./tmp/sql_cohort.txt', 'w') as f:
+                time_fmt = '%Y%m%d_%H%M%S'
+                timestamp = datetime.now().strftime(time_fmt)
+                filename = './tmp/sql_cohort'+'_'+timestamp+'.txt'
+                with open(filename, 'w') as f:
                     f.write(self.cohort_generation_sql)
+                logging.info(f' Write cohort SQL to {filename}')        
+                logging.info(f' db.build_table({self._schema_name}.{self._cohort_table_name})')        
 
                 db.build_table('{}.{}'.format(
                     self._schema_name,
@@ -90,6 +101,7 @@ class Cohort(object):
                 self._cohort_table_name,
                 self._first
             )
+            logging.info(f" first= {self._first}  --> Build {new_table_name}")
 
             sql = """
                 create table {new_table}
@@ -107,6 +119,10 @@ class Cohort(object):
             db.build_table(new_table_name, sql)
 
             self.table_name = new_table_name
+        else:
+            logging.info(f" first= {self._first}  ")
+            
+            
 
         if not self._built:
             
@@ -114,6 +130,7 @@ class Cohort(object):
                 schema=self._schema_name,
                 table=self._cohort_table_name
             )
+            logging.info(f" built= {self._built}  --> Build {cohort_table}")
             
             col_names = [
                 'example_id',
@@ -129,7 +146,9 @@ class Cohort(object):
                 columns=','.join(col_names),
                 table=cohort_table
             )
-            
+            print(f"------------------------------------")
+            print(sql)
+            print(f"------------------------------------")
             self._cohort = db.query(sql)
             
             for date_col in ['start_date', 'end_date']:

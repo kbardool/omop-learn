@@ -21,7 +21,9 @@ with
     eligible_people as (
         select p.person_id
         from {cdm_schema}.person p
-        where extract(
+        where
+        location_id in {locations} 
+        and extract(
             year from date '{training_end_date}'
         ) - p.year_of_birth > {age}
     ),

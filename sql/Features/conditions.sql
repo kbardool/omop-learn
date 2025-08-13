@@ -4,7 +4,7 @@ select
     a.condition_concept_id || ' - condition - ' || coalesce (
         c.concept_name, 'no match'
     ) as concept_name,
-    a.condition_start_datetime as feature_start_date,
+    a.condition_start_date as feature_start_date,
     b.start_date as person_start_date,
     b.end_date as person_end_date
 from 
@@ -18,4 +18,4 @@ left join
 on 
     c.concept_id = a.condition_concept_id
 where
-    a.condition_start_datetime <= b.end_date
+    a.condition_start_date <= b.end_date

@@ -5,6 +5,13 @@ PG_PORT = '5444'
 DB_NAME = 'OHDSI'
 PG_USERNAME = "athena_admin"
 PG_PASSWORD = "3Ej14dDacXaBFliu"
+
+PG_HOST ='wt-1-00.exascience.org'
+PG_PORT = '5432'
+DB_NAME ='athena'
+PG_USERNAME = "postgres"
+PG_PASSWORD = "postgres"
+
 # PG_USERNAME = 'athena'
 # PG_PASSWORD = '7YPAGTLKzlY66l2G'
 

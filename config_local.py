@@ -1,6 +1,7 @@
 
 # Database Setup
-PG_HOST = '172.19.224.1'
+# PG_HOST = '172.19.224.1'
+PG_HOST = '192.168.192.1'
 PG_PORT = '5432'
 DB_NAME = 'OHDSI'
 PG_USERNAME = "kevin"

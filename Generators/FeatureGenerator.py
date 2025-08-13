@@ -6,30 +6,39 @@ import time
 import sparse
 import pandas as pd
 import numpy as np
+from   datetime import datetime
 from scipy.sparse import coo_matrix, csr_matrix
 
 import config 
+import logging
+logging.basicConfig(level="INFO")
+logging.getLogger("imported_module").setLevel(logging.CRITICAL)        
+
 
 class Feature():
 
     def __init__(
         self,
+        feature_name,
         feature_sql_file,
         feature_sql_params,
         temporal=True
     ):
         self.is_temporal = temporal
-        
+        self.name  = feature_name
         self.params = feature_sql_params
         with open(feature_sql_file, 'r') as f:
             raw_sql = f.read()
             
+        logging.info(f" Feature init():  feature name:        {feature_name}")
+        logging.info(f"                  feature SQL file:    {feature_sql_file}")
+        logging.info(f"                  feature SQL params:  {feature_sql_params}")
         self._feature_sql_file = feature_sql_file
         self._sql_raw = raw_sql
 
 
     def __str__(self):
-        return "{}Temporal feature extracted from {}".format(' Non-' if self.is_temporal else ' ',
+        return "{}Temporal feature extracted from {}".format(' ' if self.is_temporal else 'Non-',
             self._feature_sql_file
         )
     
@@ -51,6 +60,7 @@ class FeatureSet():
         unique_id_col = 'example_id'
         ):
         
+        logging.info(f" initialize feature set")
         self._db = db
         self._dtcols = dtcols
         
@@ -82,17 +92,26 @@ class FeatureSet():
 
     def add(self, feature):
         if feature.is_temporal:
+            self._temporal_feature_names.append(feature.name)
             self._temporal_features.append(feature)
         else:
+            self._nontemporal_feature_names.append(feature.name)
             self._nontemporal_features.append(feature)
 
     def add_default_features(self, default_features, schema_name=None, cohort_name=None, temporal=True):
-        fns = [
-            './sql/Features/{}.sql'.format(f)
-            for f in default_features
-        ]
-        for fn in fns:
+        # fns = [
+            # './sql/Features/{}.sql'.format(f)
+            # for f in default_features
+        # ]
+        
+        # for fn in fns:
+        for feature_name in default_features:
+            fn = './sql/Features/{}.sql'.format(feature_name)
+            logging.info(f" FeatureSet - add {'' if temporal else ' non'}temporal feature:  {feature_name}")
+            # logging.info(f" FeatureSet.add_default_features() - instantiate feature:  {feature_name}")
+            
             feature = Feature(
+                feature_name,
                 fn,
                 {
                     'cdm_schema':config.OMOP_CDM_SCHEMA,
@@ -114,13 +133,20 @@ class FeatureSet():
             self._temporal_feature_names +  self._nontemporal_feature_names
         )
 
-    def build(self, cohort, cache_file='/tmp/store.csv', nontemporal_cache_file='/tmp/store_ntmp.csv', from_cached=False):
+    def build(self, cohort, cache_file='/tmp_cache/store_temporal', nontemporal_cache_file='/tmp_cache/store_nontemporal', from_cached=False):
         """
         build joined sql for temporal features and write to output
         execute query as a COPY to CSV file
         """
+        time_fmt = '%Y%m%d_%H%M%S'
+        timestamp = datetime.now().strftime(time_fmt)
+
+        ##-------------------------------------------------
+        ## build SQL unioning all features 
+        ##-------------------------------------------------        
+        logging.info(f"Build SQL for all temporal features ")
         joined_sql = "{} order by {} asc".format(
-            "union all \n\n".join(
+            "\n\n union all \n\n".join(
                     f._sql_raw.format(
                         cdm_schema=config.OMOP_CDM_SCHEMA,
                         cohort_table='{}.{}'.format(
@@ -134,10 +160,16 @@ class FeatureSet():
                       self.time_col, self.feature_col])    
         )
 
-
-        with open('tmp/sql_temporal.txt','w') as f:
+        sql_filename = './tmp/sql_temporal'+'_'+timestamp+'.txt'
+        logging.info(f"SQL for temporal features {sql_filename:s}")
+        # with open('tmp/sql_temporal.txt','w') as f:
+        with open(sql_filename,'w') as f:
             f.write(joined_sql)
-        
+
+        ##-------------------------------------------------
+        ## build copy command to write out feature dataset 
+        ## to CSV file
+        ##-------------------------------------------------                
         if not from_cached:
             copy_sql = """
                 copy 
@@ -151,39 +183,53 @@ class FeatureSet():
                 head="HEADER"
             )
             with open('tmp/copy_temporal.txt','w') as f:
-                f.write(copy_sql)   
-
+                f.write(copy_sql)            
             t = time.time()
             conn = self._db.engine.raw_connection()
             cur = conn.cursor()
-            print(os.getcwd())
-            store = open(cache_file,'wb')
-            cur.copy_expert(copy_sql, store)
-            store.seek(0)
-            print('Temporal data loaded to buffer in {0:.2f} seconds'.format(time.time()-t))
+            logging.info(f"Current working dir: {os.getcwd()}")
             
-        t = time.time()
-        store = open(cache_file,'rb')
-
+            cache_filename = cache_file + '_' + timestamp + '.csv' 
+            with open(cache_filename,'wb') as store:
+                cur.copy_expert(copy_sql, store)
+                store.seek(0)
+            
+            # store = open(cache_file,'wb')
+            # cur.copy_expert(copy_sql, store)
+            # store.seek(0)
+            print(f"* Temporal data loaded to buffer {cache_filename} in {time.time()-t:.2f} seconds")
+            
+        ##-------------------------------------------------
+        ## Read cache_file
         ## Create lists of unique times, concepts, and ids 
+        ##-------------------------------------------------
+        logging.info(f"Read cached file and create list of unique times, concepts and ids")
+        t = time.time()
+        store = open(cache_filename,'rb')    
         
         self.concepts = set()
         self.times = set()
         self.seen_ids=set()
-        chunksize = int(2e6) 
+        chunksize = int(2e6)
+         
         for chunk in pd.read_csv(store, chunksize=chunksize):
             chunk.dropna(subset=[self.feature_col], inplace=True)
             self.concepts = self.concepts.union(set(chunk[self.feature_col].unique()))
             self.times = self.times.union(set(chunk[self.time_col].unique()))
             self.seen_ids = self.seen_ids.union(set(chunk[self.unique_id_col].unique()))
+        
         self.times    = sorted(list(self.times))
         self.concepts = sorted(list(self.concepts))
         self.seen_ids = sorted(list(self.seen_ids))
-        print('Got {} Unique Concepts, {}  Timestamps , and {} examples in {:.2f} seconds'.format( len(self.concepts), len(self.times), 
+        
+        print('* Got {} Unique Concepts, {}  Timestamps , and {} examples in {:.2f} seconds'.format( len(self.concepts), len(self.times), 
             len(self.seen_ids) , time.time()-t))
         
-        ## Create index mappings 
-
+        ##-------------------------------------------------        
+        ## Create forward and reverse mappings between 
+        ## concepts and their locations
+        ##-------------------------------------------------
+        logging.info(f"Create forward/reverse mappings for concepts and timestamps")
         t = time.time()
         store.seek(0)
         self.ids = cohort._cohort[self.unique_id_col].unique()
@@ -194,12 +240,15 @@ class FeatureSet():
         self.time_map = {i:t for i,t in enumerate(self.times)}
         self.time_map_rev = {t:i for i,t in enumerate(self.times)}
 
-        print('Created Index Mappings in {0:.2f} seconds'.format(
+        print('* Created Index Mappings in {0:.2f} seconds'.format(
             time.time()-t
         ))
 
+        ##-------------------------------------------------
         ## Create a sparse representation of the data
-        
+        ## stored in self._spm_arr
+        ##-------------------------------------------------        
+        logging.info(f"Create sparse representation matrix")
         t = time.time()
         last = None
         spm_stored = None
@@ -212,6 +261,7 @@ class FeatureSet():
             vals = chunk[self.unique_id_col].unique()
             indices = np.searchsorted(chunk[self.unique_id_col], vals)
             self.recorded_ids = self.recorded_ids.union(set(vals))
+            
             
             chunk.loc[:, self.feature_col] = chunk[self.feature_col].apply(self.concept_map_rev.get)
             chunk.loc[:, self.time_col] = chunk[self.time_col].apply(self.time_map_rev.get)
@@ -243,10 +293,13 @@ class FeatureSet():
  
         self._spm_arr = sparse.stack([sparse.COO.from_scipy_sparse(m) for m in spm_arr], 2)
 
-        print('Generated Sparse Representation of Data in {0:.2f} seconds'.format(time.time() - t ))
+        print('* Generated Sparse Representation of Data in {0:.2f} seconds'.format(time.time() - t ))
         store.close()
+        
+        
+        ##-------------------------------------------------
         # Build nontemporal feature matrix
-
+        ##-------------------------------------------------
         if len(self._nontemporal_features) > 0:
             joined_sql = "{} order by {} asc".format(
                 " union all ".join(
@@ -306,7 +359,7 @@ class FeatureSet():
             self.ntmp_concept_map = {i:concept_name for i,concept_name in enumerate(self.ntmp_concepts)}
             self.ntmp_concept_map_rev = {concept_name:i for i,concept_name in enumerate(self.ntmp_concepts)}
 
-            print('Created Nontemporal Index Mappings in {0:.2f} seconds'.format(
+            print('* Created Nontemporal Index Mappings in {0:.2f} seconds'.format(
                 time.time()-t
             ))
 
